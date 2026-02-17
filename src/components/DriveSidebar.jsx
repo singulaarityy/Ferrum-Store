@@ -37,20 +37,17 @@ export default function DriveSidebar({ onNewClick }) {
 
     const navItems = [
         { text: 'Beranda', icon: <HomeFilledIcon />, index: 0, hasArrow: false },
-        { text: 'Drive Saya', icon: <FolderIcon />, index: 1, hasArrow: true, isOpen: myDriveOpen, toggle: () => setMyDriveOpen(!myDriveOpen) },
-        { text: 'Komputer', icon: <DevicesIcon />, index: 2, hasArrow: true, isOpen: computersOpen, toggle: () => setComputersOpen(!computersOpen) },
     ];
 
     const secondaryItems = [
-        { text: 'Dibagikan kepada saya', icon: <PeopleIcon />, index: 3 },
-        { text: 'Terbaru', icon: <AccessTimeIcon />, index: 4 },
-        { text: 'Berbintang', icon: <StarBorderIcon />, index: 5 },
+        { text: 'Dibagikan kepada saya', icon: <PeopleIcon />, index: 1 },
+        { text: 'Terbaru', icon: <AccessTimeIcon />, index: 2 },
+        { text: 'Berbintang', icon: <StarBorderIcon />, index: 3 },
     ];
 
     const tertiaryItems = [
-        { text: 'Spam', icon: <ReportGmailerrorredIcon />, index: 6 },
-        { text: 'Sampah', icon: <DeleteOutlineIcon />, index: 7 },
-        { text: 'Penyimpanan (98% penuh)', icon: <CloudQueueIcon />, index: 8, alert: true },
+        { text: 'Sampah', icon: <DeleteOutlineIcon />, index: 4 },
+        { text: 'Penyimpanan (98% penuh)', icon: <CloudQueueIcon />, index: 5, alert: true },
     ];
 
     return (

@@ -4,7 +4,7 @@ import Box from '@mui/material/Box';
 import DriveHeader from './DriveHeader';
 import DriveSidebar from './DriveSidebar';
 import DriveMain from './DriveMain';
-import RightPanel from './RightPanel'; // New component
+// import RightPanel from './RightPanel'; // Removed
 import CssBaseline from '@mui/material/CssBaseline';
 import Drawer from '@mui/material/Drawer';
 import Paper from '@mui/material/Paper';
@@ -17,7 +17,6 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { useDropzone } from 'react-dropzone';
 
 const drawerWidth = 256;
-const rightPanelWidth = 56;
 
 const UploadProgress = ({ uploads, onClose }) => {
     if (uploads.length === 0) return null;
@@ -28,7 +27,7 @@ const UploadProgress = ({ uploads, onClose }) => {
             sx={{
                 position: 'fixed',
                 bottom: 24,
-                right: rightPanelWidth + 24, // Adjust for right panel
+                right: 24, // No right panel offset
                 width: 360,
                 maxHeight: 400,
                 display: 'flex',
@@ -82,6 +81,21 @@ export default function DriveLayout() {
     const [mobileOpen, setMobileOpen] = useState(false);
     const [uploads, setUploads] = useState([]);
 
+    const [fileSystem, setFileSystem] = useState([
+        { id: 'folder-1', name: 'Folder Baru', type: 'folder', parentId: 'root', location: 'Drive Saya' }
+    ]);
+    const [currentFolderId, setCurrentFolderId] = useState('root');
+
+    const handleFolderClick = (folderId) => {
+        setCurrentFolderId(folderId);
+    };
+
+    const handleNavigateBack = () => {
+        if (currentFolderId === 'root') return;
+        const currentFolder = fileSystem.find(item => item.id === currentFolderId);
+        setCurrentFolderId(currentFolder ? currentFolder.parentId : 'root');
+    };
+
     const onDrop = useCallback(acceptedFiles => {
         const newUploads = acceptedFiles.map(file => ({
             name: file.name,
@@ -89,6 +103,19 @@ export default function DriveLayout() {
             id: Math.random().toString(36).substr(2, 9)
         }));
         setUploads(prev => [...prev, ...newUploads]);
+
+        // Add to file system immediately (simulate upload completion for file listing)
+        const newFiles = acceptedFiles.map(file => ({
+            id: Math.random().toString(36).substr(2, 9),
+            name: file.name,
+            type: file.name.split('.').pop() || 'unknown', // simple type detection
+            parentId: currentFolderId,
+            date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+            action: 'Anda menguploadnya',
+            thumbnail: null
+        }));
+
+        setFileSystem(prev => [...prev, ...newFiles]);
 
         // Simulate upload progress
         newUploads.forEach((file) => {
@@ -104,7 +131,7 @@ export default function DriveLayout() {
                 if (progress >= 100) clearInterval(interval);
             }, 800);
         });
-    }, []);
+    }, [currentFolderId]);
 
     const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ onDrop, noClick: true, noKeyboard: true });
 
@@ -155,7 +182,7 @@ export default function DriveLayout() {
                     flexGrow: 1,
                     display: 'flex',
                     flexDirection: 'column',
-                    width: { md: `calc(100% - ${drawerWidth}px - ${rightPanelWidth}px)` },
+                    width: { md: `calc(100% - ${drawerWidth}px)` },
                     height: '100%',
                     pt: '64px', // Match header height
                     pr: 0, // No padding right yet, container will have margin
@@ -177,7 +204,12 @@ export default function DriveLayout() {
                     position: 'relative'
                 }}>
                     <Box sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
-                        <DriveMain />
+                        <DriveMain
+                            items={fileSystem.filter(item => item.parentId === currentFolderId)}
+                            onFolderClick={handleFolderClick}
+                            onNavigateBack={handleNavigateBack}
+                            isRoot={currentFolderId === 'root'}
+                        />
                     </Box>
 
                     {isDragActive && (
@@ -206,10 +238,7 @@ export default function DriveLayout() {
                 </Box>
             </Box>
 
-            {/* Right Side Panel */}
-            <Box sx={{ width: { md: rightPanelWidth }, display: { xs: 'none', md: 'block' }, pt: '64px' }}>
-                <RightPanel />
-            </Box>
+            {/* Right Side Panel - REMOVED */}
 
             <UploadProgress uploads={uploads} onClose={() => setUploads([])} />
 

@@ -19,6 +19,8 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import FolderZipIcon from '@mui/icons-material/FolderZip';
 import Avatar from '@mui/material/Avatar';
 import Chip from '@mui/material/Chip';
+import Button from '@mui/material/Button';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 const FileIcon = ({ type, fontSize = 24 }) => {
     if (type === 'folder') return <FolderIcon sx={{ color: '#5f6368', fontSize }} />;
@@ -114,7 +116,7 @@ const FilePreviewCard = ({ file }) => (
 );
 
 
-export default function DriveMain() {
+export default function DriveMain({ items = [], onFolderClick, onNavigateBack, isRoot = true }) {
     const [view, setView] = useState('grid');
 
     const handleViewChange = (event, nextView) => {
@@ -123,54 +125,76 @@ export default function DriveMain() {
         }
     };
 
+    const folders = items.filter(item => item.type === 'folder');
+    const files = items.filter(item => item.type !== 'folder');
+
     return (
         <Box sx={{ flexGrow: 1, p: 3, pt: 2, overflowY: 'auto' }}>
-            <Typography variant="h5" sx={{ mb: 3, color: '#1f1f1f', fontWeight: 400 }}>
-                Selamat datang di Drive
-            </Typography>
-
-            {/* Suggested Folders Section */}
-            <Box sx={{ mb: 4 }}>
-                <Typography variant="subtitle2" sx={{ mb: 2, color: '#1f1f1f', fontWeight: 500 }}>
-                    Folder yang disarankan
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                {!isRoot && (
+                    <IconButton onClick={onNavigateBack} sx={{ mr: 1 }}>
+                        <ArrowBackIcon />
+                    </IconButton>
+                )}
+                <Typography variant="h5" sx={{ color: '#1f1f1f', fontWeight: 400 }}>
+                    {isRoot ? 'Selamat datang di Drive' : 'Folder'}
                 </Typography>
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
-                    {suggestedFolders.map(folder => (
-                        <FolderCard key={folder.id} folder={folder} />
-                    ))}
-                </Box>
             </Box>
 
-            {/* Suggested Files Section */}
-            <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography variant="subtitle2" sx={{ color: '#1f1f1f', fontWeight: 500 }}>
-                        File yang disarankan
+            {/* Folders Section */}
+            {folders.length > 0 && (
+                <Box sx={{ mb: 4 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 2, color: '#1f1f1f', fontWeight: 500 }}>
+                        Folder
                     </Typography>
-
-                    <ToggleButtonGroup
-                        value={view}
-                        exclusive
-                        onChange={handleViewChange}
-                        aria-label="view mode"
-                        size="small"
-                        sx={{ height: 32 }}
-                    >
-                        <ToggleButton value="list" aria-label="list view" sx={{ borderRadius: '16px 0 0 16px', border: '1px solid #c7c7c7' }}>
-                            <FilterListIcon fontSize="small" />
-                        </ToggleButton>
-                        <ToggleButton value="grid" aria-label="grid view" sx={{ borderRadius: '0 16px 16px 0', border: '1px solid #c7c7c7' }}>
-                            <ViewModuleIcon fontSize="small" />
-                        </ToggleButton>
-                    </ToggleButtonGroup>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
+                        {folders.map(folder => (
+                            <Box key={folder.id} onClick={() => onFolderClick(folder.id)}>
+                                <FolderCard folder={folder} />
+                            </Box>
+                        ))}
+                    </Box>
                 </Box>
+            )}
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 2 }}>
-                    {suggestedFiles.map((file) => (
-                        <FilePreviewCard key={file.id} file={file} />
-                    ))}
+            {/* Files Section */}
+            {files.length > 0 && (
+                <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                        <Typography variant="subtitle2" sx={{ color: '#1f1f1f', fontWeight: 500 }}>
+                            File
+                        </Typography>
+
+                        <ToggleButtonGroup
+                            value={view}
+                            exclusive
+                            onChange={handleViewChange}
+                            aria-label="view mode"
+                            size="small"
+                            sx={{ height: 32 }}
+                        >
+                            <ToggleButton value="list" aria-label="list view" sx={{ borderRadius: '16px 0 0 16px', border: '1px solid #c7c7c7' }}>
+                                <FilterListIcon fontSize="small" />
+                            </ToggleButton>
+                            <ToggleButton value="grid" aria-label="grid view" sx={{ borderRadius: '0 16px 16px 0', border: '1px solid #c7c7c7' }}>
+                                <ViewModuleIcon fontSize="small" />
+                            </ToggleButton>
+                        </ToggleButtonGroup>
+                    </Box>
+
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 2 }}>
+                        {files.map((file) => (
+                            <FilePreviewCard key={file.id} file={file} />
+                        ))}
+                    </Box>
                 </Box>
-            </Box>
+            )}
+
+            {items.length === 0 && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', mt: 10 }}>
+                    <Typography variant="body1" color="text.secondary">Folder ini kosong</Typography>
+                </Box>
+            )}
         </Box>
     );
 }
