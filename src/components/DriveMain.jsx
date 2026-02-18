@@ -61,7 +61,7 @@ const FolderCard = ({ folder }) => (
     </Card>
 );
 
-const FilePreviewCard = ({ file }) => (
+const FilePreviewCard = ({ file, onClick }) => (
     <Card variant="outlined" sx={{
         borderRadius: '12px',
         border: '1px solid #e0e0e0',
@@ -72,7 +72,7 @@ const FilePreviewCard = ({ file }) => (
             boxShadow: '0 1px 2px 0 rgba(60,64,67,0.30), 0 1px 3px 1px rgba(60,64,67,0.15)',
             cursor: 'pointer'
         }
-    }}>
+    }} onClick={() => onClick && onClick(file.id)}>
         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
                 <FileIcon type={file.type} fontSize={20} />
@@ -116,7 +116,7 @@ const FilePreviewCard = ({ file }) => (
 );
 
 
-export default function DriveMain({ items = [], onFolderClick, onNavigateBack, isRoot = true }) {
+export default function DriveMain({ items = [], onFolderClick, onNavigateBack, onFileClick, isRoot = true }) {
     const [view, setView] = useState('grid');
 
     const handleViewChange = (event, nextView) => {
@@ -184,7 +184,7 @@ export default function DriveMain({ items = [], onFolderClick, onNavigateBack, i
 
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 2 }}>
                         {files.map((file) => (
-                            <FilePreviewCard key={file.id} file={file} />
+                            <FilePreviewCard key={file.id} file={file} onClick={onFileClick} />
                         ))}
                     </Box>
                 </Box>

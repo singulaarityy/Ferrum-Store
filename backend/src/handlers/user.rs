@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use bcrypt::{hash, verify, DEFAULT_COST};
-use sqlx::{query, query_as};
+use sqlx::{query, query_as, query_scalar};
 use uuid::Uuid;
 
 use crate::models::{CreateUserDto, LoginDto, User, AuthResponse};

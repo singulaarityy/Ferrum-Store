@@ -5,7 +5,7 @@ use axum::{
 };
 use crate::state::AppState;
 use crate::services::auth::{verify_jwt, Claims};
-use std::sync::Arc;
+
 
 pub struct AuthUser(pub Claims);
 

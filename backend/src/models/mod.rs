@@ -13,7 +13,7 @@ pub struct User {
     pub created_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
 pub struct Folder {
     pub id: String,
     pub name: String,
@@ -23,7 +23,7 @@ pub struct Folder {
     pub created_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
 pub struct File {
     pub id: String,
     pub name: String,

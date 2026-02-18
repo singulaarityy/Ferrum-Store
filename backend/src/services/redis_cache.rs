@@ -1,5 +1,5 @@
-use redis::{Client, AsyncCommands, RedisResult};
-use serde::{Deserialize, Serialize};
+use redis::{Client, AsyncCommands};
+
 use crate::models::{File, Folder};
 use anyhow::{Result, Context};
 use thiserror::Error;
@@ -16,7 +16,7 @@ pub enum CacheError {
     NotFound,
 }
 
-const PREFIX: &str = "xeuz"; // Updated to match design
+const PREFIX: &str = "ferrum"; // Updated to match design
 
 // Public High-level Methods
 
@@ -101,13 +101,13 @@ pub async fn cache_folder_files(client: &Client, folder_id: &str, files: &[File]
     
     for file in files {
         // Add to ZSET (Score = created_at timestamp or 0)
-        let score = file.created_at.map(|t| t.timestamp()).unwrap_or(0);
+        let score = file.created_at.map(|t| t.and_utc().timestamp()).unwrap_or(0);
         pipe.zadd(&zkey, &file.id, score);
         
         // Add Metadata to HASH
         let meta_key = format!("{}:file:{}:meta", PREFIX, file.id);
         
-        let mut d = vec![
+        let d = vec![
             ("id", file.id.clone()),
             ("name", file.name.clone()),
             ("owner_id", file.owner_id.clone()),
@@ -124,7 +124,7 @@ pub async fn cache_folder_files(client: &Client, folder_id: &str, files: &[File]
     // Set TTL for the folder list itself
     pipe.expire(&zkey, 3600);
     
-    pipe.query_async(&mut con).await?;
+    pipe.query_async::<_, ()>(&mut con).await?;
 
     Ok(())
 }
@@ -201,7 +201,7 @@ pub async fn cache_subfolders(client: &Client, parent_id: &str, folders: &[Folde
     pipe.atomic(); 
     
     for folder in folders {
-        let score = folder.created_at.map(|t| t.timestamp()).unwrap_or(0);
+        let score = folder.created_at.map(|t| t.and_utc().timestamp()).unwrap_or(0);
         pipe.zadd(&zkey, &folder.id, score);
         
         let meta_key = format!("{}:folder:{}:meta", PREFIX, folder.id);
@@ -214,7 +214,7 @@ pub async fn cache_subfolders(client: &Client, parent_id: &str, folders: &[Folde
         pipe.expire(&meta_key, 3600);
     }
     pipe.expire(&zkey, 3600);
-    pipe.query_async(&mut con).await?;
+    pipe.query_async::<_, ()>(&mut con).await?;
     Ok(())
 }
 
@@ -229,6 +229,25 @@ pub async fn invalidate_folder_listing(client: &Client, folder_id: &str) -> Resu
     let _: () = con.del(&[zkey_files, empty_key_files, zkey_subs, empty_key_subs]).await.unwrap_or(());
     
     Ok(())
+}
+
+pub async fn increment_usage(client: &Client, user_id: &str, size: i64) -> Result<()> {
+    let mut con = client.get_multiplexed_async_connection().await?;
+    let key = format!("{}:user:{}:usage", PREFIX, user_id);
+    let _: () = con.incr(key, size).await?;
+    Ok(())
+}
+
+pub async fn check_rate_limit(client: &Client, user_id: &str, action: &str, limit: i64, window: i64) -> Result<bool> {
+    let mut con = client.get_multiplexed_async_connection().await?;
+    let key = format!("{}:ratelimit:{}:{}", PREFIX, user_id, action);
+    
+    let count: i64 = con.incr(&key, 1).await?;
+    if count == 1 {
+        let _: () = con.expire(&key, window).await?;
+    }
+    
+    Ok(count <= limit)
 }
 
 // Private Helpers

@@ -41,10 +41,17 @@ pub async fn upload_file(
 
     // 2. Insert Metadata into DB (Optimistic)
     // Risk: Client fails upload, DB has record. Real systems use status column/webhooks.
+    
+    let db_folder_id = if payload.folder_id == "root" {
+        None
+    } else {
+        Some(payload.folder_id.clone())
+    };
+
     let result = query("INSERT INTO files (id, name, folder_id, owner_id, storage_key, size, mime_type, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&file_id)
         .bind(&payload.name)
-        .bind(&payload.folder_id)
+        .bind(&db_folder_id)
         .bind(&user.sub)
         .bind(&storage_key)
         .bind(payload.size)

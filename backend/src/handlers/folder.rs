@@ -52,13 +52,9 @@ pub async fn create_folder(
         if let Some(p) = parent {
             if p.owner_id != user.sub && user.role != "admin" {
                 // Check explicit editor permission
-                let has_perm: Option<i64> = query("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ? AND permission = 'editor'")
+                let has_perm: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ? AND permission = 'editor'")
                     .bind(parent_id)
                     .bind(&user.sub)
-                    .map(|row: sqlx::mysql::MySqlRow| {
-                        use sqlx::Row;
-                        row.try_get(0).unwrap_or(0)
-                    })
                     .fetch_one(&state.db)
                     .await
                     .ok();
@@ -157,13 +153,9 @@ pub async fn list_folder(
             }
          } else {
              // DB Fallback
-             let has_perm: Option<i64> = query("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ?") 
+             let has_perm: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ?") 
                 .bind(&folder_id)
                 .bind(&user.sub)
-                .map(|row: sqlx::mysql::MySqlRow| {
-                    use sqlx::Row;
-                    row.try_get(0).unwrap_or(0)
-                })
                 .fetch_one(&state.db)
                 .await
                 .ok();
@@ -187,22 +179,20 @@ pub async fn list_folder(
     let subfolders = match cached_subfolders {
         Some(s) => s,
         None => {
-            let sql = if folder_id == "root" {
-                "SELECT * FROM folders WHERE parent_id IS NULL AND owner_id = ?" 
+            let s: Vec<Folder> = if folder_id == "root" {
+                     sqlx::query_as("SELECT * FROM folders WHERE parent_id IS NULL AND owner_id = ?")
+                        .bind(&user.sub)
+                        .fetch_all(&state.db)
+                        .await
+                        .unwrap_or_default()
             } else {
-                 "SELECT * FROM folders WHERE parent_id = ?"
+                     sqlx::query_as("SELECT * FROM folders WHERE parent_id = ?")
+                        .bind(&folder_id)
+                        .fetch_all(&state.db)
+                        .await
+                        .unwrap_or_default()
             };
             
-            let mut q = query_as(sql);
-            if folder_id == "root" {
-                q = q.bind(&user.sub); // For root, show own root folders
-            } else {
-                q = q.bind(&folder_id);
-            }
-
-            let s: Vec<Folder> = q.fetch_all(&state.db)
-                .await
-                .unwrap_or_default();
             // Populate cache
             let _ = cache_subfolders(&state.redis, &folder_id, &s).await;
             s
@@ -212,22 +202,20 @@ pub async fn list_folder(
     let files = match cached_files {
         Some(f) => f,
         None => {
-            let sql = if folder_id == "root" {
-                "SELECT * FROM files WHERE folder_id IS NULL AND owner_id = ?" 
+            let f: Vec<File> = if folder_id == "root" {
+                 sqlx::query_as("SELECT * FROM files WHERE folder_id IS NULL AND owner_id = ?")
+                        .bind(&user.sub)
+                        .fetch_all(&state.db)
+                        .await
+                        .unwrap_or_default()
             } else {
-                 "SELECT * FROM files WHERE folder_id = ?"
+                 sqlx::query_as("SELECT * FROM files WHERE folder_id = ?")
+                        .bind(&folder_id)
+                        .fetch_all(&state.db)
+                        .await
+                        .unwrap_or_default()
             };
-
-            let mut q = query_as(sql);
-            if folder_id == "root" {
-                q = q.bind(&user.sub);
-            } else {
-                q = q.bind(&folder_id);
-            }
             
-            let f: Vec<File> = q.fetch_all(&state.db)
-                .await
-                .unwrap_or_default();
              // Populate cache
              let _ = cache_folder_files(&state.redis, &folder_id, &f).await;
              f
