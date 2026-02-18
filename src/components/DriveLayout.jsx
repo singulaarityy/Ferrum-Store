@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import DriveHeader from './DriveHeader';
 import DriveSidebar from './DriveSidebar';
@@ -81,10 +81,70 @@ export default function DriveLayout() {
     const [mobileOpen, setMobileOpen] = useState(false);
     const [uploads, setUploads] = useState([]);
 
-    const [fileSystem, setFileSystem] = useState([
-        { id: 'folder-1', name: 'Folder Baru', type: 'folder', parentId: 'root', location: 'Drive Saya' }
-    ]);
+    // State for file system
+    const [items, setItems] = useState([]);
     const [currentFolderId, setCurrentFolderId] = useState('root');
+    const [currentFolderParentId, setCurrentFolderParentId] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    // Fetch data from backend
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const token = localStorage.getItem('token');
+                const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+                // If no token, maybe redirect to login? For now, we assume token exists or public.
+
+                const res = await fetch(`http://localhost:8080/api/folders/${currentFolderId}`, {
+                    headers
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // Map API response to UI format
+                    const mappedSubfolders = data.subfolders.map(f => ({
+                        id: f.id,
+                        name: f.name,
+                        type: 'folder',
+                        parentId: data.folder.id, // Current folder is parent
+                        date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
+                        action: 'Folder',
+                        owner: f.owner_id
+                    }));
+
+                    const mappedFiles = data.files.map(f => ({
+                        id: f.id,
+                        name: f.name,
+                        type: 'file', // Can refine this based on mime_type
+                        mimeType: f.mime_type, // Store actual mime
+                        parentId: data.folder.id,
+                        date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
+                        action: 'Mengedit', // Placeholder
+                        size: f.size
+                    }));
+
+                    setItems([...mappedSubfolders, ...mappedFiles]);
+
+                    // Update parent ID for navigation
+                    // If current is root, parentId is null
+                    setCurrentFolderParentId(data.folder.parent_id || 'root');
+                } else {
+                    console.error("Failed to fetch folder:", res.statusText);
+                    // Fallback to empty or error state
+                    setItems([]);
+                }
+            } catch (error) {
+                console.error("Error fetching folder:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [currentFolderId]);
 
     const handleFolderClick = (folderId) => {
         setCurrentFolderId(folderId);
@@ -92,11 +152,12 @@ export default function DriveLayout() {
 
     const handleNavigateBack = () => {
         if (currentFolderId === 'root') return;
-        const currentFolder = fileSystem.find(item => item.id === currentFolderId);
-        setCurrentFolderId(currentFolder ? currentFolder.parentId : 'root');
+        // logic: if currentFolderParentId is null/empty but we are not at root, go to root.
+        setCurrentFolderId(currentFolderParentId || 'root');
     };
 
     const onDrop = useCallback(acceptedFiles => {
+        // ... (Simulated upload for now, real implementation requires presigned URLs) ...
         const newUploads = acceptedFiles.map(file => ({
             name: file.name,
             progress: 0,
@@ -104,18 +165,18 @@ export default function DriveLayout() {
         }));
         setUploads(prev => [...prev, ...newUploads]);
 
-        // Add to file system immediately (simulate upload completion for file listing)
+        // Optimistic UI update
         const newFiles = acceptedFiles.map(file => ({
             id: Math.random().toString(36).substr(2, 9),
             name: file.name,
-            type: file.name.split('.').pop() || 'unknown', // simple type detection
+            type: 'file',
             parentId: currentFolderId,
             date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
             action: 'Anda menguploadnya',
             thumbnail: null
         }));
 
-        setFileSystem(prev => [...prev, ...newFiles]);
+        setItems(prev => [...prev, ...newFiles]);
 
         // Simulate upload progress
         newUploads.forEach((file) => {
@@ -205,7 +266,7 @@ export default function DriveLayout() {
                 }}>
                     <Box sx={{ flexGrow: 1, overflow: 'auto', p: 0 }}>
                         <DriveMain
-                            items={fileSystem.filter(item => item.parentId === currentFolderId)}
+                            items={items}
                             onFolderClick={handleFolderClick}
                             onNavigateBack={handleNavigateBack}
                             isRoot={currentFolderId === 'root'}
