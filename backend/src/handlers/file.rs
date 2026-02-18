@@ -11,13 +11,19 @@ use crate::models::{FileUploadRequest, FileUploadResponse, File};
 use crate::state::AppState;
 use crate::services::minio::{get_presigned_put_url, get_presigned_get_url};
 use crate::services::redis_cache::{increment_usage, invalidate_folder_listing, check_rate_limit};
-use crate::middleware::auth::AuthUser;
+use crate::middleware::auth::{AuthUser, OptionalAuthUser};
 
 pub async fn upload_file(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(payload): Json<FileUploadRequest>,
 ) -> impl IntoResponse {
+    // Role Check: Only admin, osis, media_guru can upload files
+    let allowed_roles = ["admin", "osis", "media_guru"];
+    if !allowed_roles.contains(&user.role.as_str()) {
+        return (StatusCode::FORBIDDEN, "Insufficient role to upload files").into_response();
+    }
+
     // 0. Rate Limiting (10 uploads per minute)
     let allowed = check_rate_limit(&state.redis, &user.sub, "upload", 10, 60).await.unwrap_or(true);
     if !allowed {
@@ -78,9 +84,12 @@ pub async fn upload_file(
 
 pub async fn download_file(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    OptionalAuthUser(opt_user): OptionalAuthUser,
     Path(file_id): Path<String>,
 ) -> impl IntoResponse {
+    let user_sub = opt_user.as_ref().map(|u| u.sub.clone());
+    let user_role = opt_user.as_ref().map(|u| u.role.clone());
+
     // 1. Get File Metadata
     let file: Option<File> = sqlx::query_as("SELECT * FROM files WHERE id = ?")
         .bind(&file_id)
@@ -93,11 +102,40 @@ pub async fn download_file(
         None => return (StatusCode::NOT_FOUND, "File not found").into_response(),
     };
 
-    // 2. Check Permission (Owner or Public or Shared)
-    if file.owner_id != user.sub && !file.is_public {
-        // Check folder permissions...
-        // For brevity: Deny if not owner
-        return (StatusCode::FORBIDDEN, "Access denied").into_response();
+    // 2. Check Permission
+    let is_public = file.is_public;
+    let is_owner = user_sub.as_ref() == Some(&file.owner_id);
+    let is_admin = user_role.as_deref() == Some("admin");
+
+    let mut access_granted = is_public || is_owner || is_admin;
+
+    if !access_granted {
+        if let Some(sub) = &user_sub {
+             // Check folder permissions (simplistic check: if user has access to folder, they can download file?)
+             // Or maybe file-specific sharing? The schema only has folder_permissions.
+             // Assumption: Folder View/Edit permission grants access to files inside.
+             let folder_id = &file.folder_id;
+             
+             // Reuse folder permission logic (or simple DB check)
+             let has_perm: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ?") 
+                .bind(folder_id)
+                .bind(sub)
+                .fetch_one(&state.db)
+                .await
+                .ok();
+             
+             if has_perm.unwrap_or(0) > 0 {
+                 access_granted = true;
+             }
+        }
+    }
+
+    if !access_granted {
+         if user_sub.is_none() {
+             return (StatusCode::UNAUTHORIZED, "Login required").into_response();
+         } else {
+             return (StatusCode::FORBIDDEN, "Access denied").into_response();
+         }
     }
 
     // 3. Generate Presigned GET URL

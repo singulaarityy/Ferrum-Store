@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import Box from '@mui/material/Box';
 import DriveHeader from './DriveHeader';
 import DriveSidebar from './DriveSidebar';
@@ -14,7 +14,23 @@ import CloseIcon from '@mui/icons-material/Close';
 import LinearProgress from '@mui/material/LinearProgress';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import Divider from '@mui/material/Divider';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+
 import { useDropzone } from 'react-dropzone';
+import { api } from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 const drawerWidth = 256;
 
@@ -78,6 +94,7 @@ const UploadProgress = ({ uploads, onClose }) => {
 };
 
 export default function DriveLayout() {
+    const { user, loading: authLoading, canEdit } = useAuth();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [uploads, setUploads] = useState([]);
 
@@ -86,115 +103,78 @@ export default function DriveLayout() {
     const [currentFolderId, setCurrentFolderId] = useState('root');
     const [currentFolderParentId, setCurrentFolderParentId] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [currentFolderOwner, setCurrentFolderOwner] = useState(null);
 
-    // Auto-auth for dev
-    useEffect(() => {
-        const ensureAuth = async () => {
-            let token = localStorage.getItem('token');
-            if (!token) {
-                // Try login default dev user
-                try {
-                    const loginRes = await fetch('http://localhost:8080/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: 'dev@example.com', password: 'password123' })
-                    });
+    // Context Menu State
+    const [contextMenu, setContextMenu] = useState(null);
 
-                    if (loginRes.ok) {
-                        const data = await loginRes.json();
-                        localStorage.setItem('token', data.token);
-                        localStorage.setItem('user', JSON.stringify(data.user));
-                        // Trigger fetch
-                        setCurrentFolderId('root'); // Re-trigger
-                    } else {
-                        // Try register
-                        const regRes = await fetch('http://localhost:8080/api/auth/register', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: 'Dev User', email: 'dev@example.com', password: 'password123', role: 'admin' })
-                        });
-                        if (regRes.ok) {
-                            // Login again
-                            const loginRes2 = await fetch('http://localhost:8080/api/auth/login', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ email: 'dev@example.com', password: 'password123' })
-                            });
-                            const data = await loginRes2.json();
-                            localStorage.setItem('token', data.token);
-                            localStorage.setItem('user', JSON.stringify(data.user));
-                            setCurrentFolderId('root');
-                        }
-                    }
-                } catch (e) {
-                    console.error("Auth failed", e);
-                }
-            }
-        };
-        ensureAuth();
-    }, []);
+    // Create Folder Dialog State
+    const [createFolderOpen, setCreateFolderOpen] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+
+    // Refs for hidden inputs
+    const fileInputRef = useRef(null);
+    const folderInputRef = useRef(null);
 
     // Fetch data from backend
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const token = localStorage.getItem('token');
-                const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data = await api.listFolder(currentFolderId);
 
-                const res = await fetch(`http://localhost:8080/api/folders/${currentFolderId}`, {
-                    headers
-                });
+            // Map API response to UI format
+            const mappedSubfolders = data.subfolders.map(f => ({
+                id: f.id,
+                name: f.name,
+                type: 'folder',
+                parentId: data.folder.id,
+                date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
+                action: 'Folder',
+                owner: f.owner_id
+            }));
 
-                if (res.ok) {
-                    const data = await res.json();
+            const mappedFiles = data.files.map(f => {
+                let type = 'file';
+                if (f.mime_type?.startsWith('image/')) type = 'image';
+                else if (f.mime_type === 'application/pdf') type = 'pdf';
+                else if (f.mime_type?.includes('zip') || f.mime_type?.includes('compressed')) type = 'zip';
 
-                    // Map API response to UI format
-                    const mappedSubfolders = data.subfolders.map(f => ({
-                        id: f.id,
-                        name: f.name,
-                        type: 'folder',
-                        parentId: data.folder.id,
-                        date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
-                        action: 'Folder',
-                        owner: f.owner_id
-                    }));
+                return {
+                    id: f.id,
+                    name: f.name,
+                    type: type,
+                    mimeType: f.mime_type,
+                    parentId: data.folder.id,
+                    date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
+                    action: 'File',
+                    size: f.size,
+                    owner: f.owner_id,
+                    isPublic: f.is_public
+                };
+            });
 
-                    const mappedFiles = data.files.map(f => {
-                        let type = 'file';
-                        if (f.mime_type?.startsWith('image/')) type = 'image';
-                        else if (f.mime_type === 'application/pdf') type = 'pdf';
-                        else if (f.mime_type?.includes('zip') || f.mime_type?.includes('compressed')) type = 'zip';
-
-                        return {
-                            id: f.id,
-                            name: f.name,
-                            type: type,
-                            mimeType: f.mime_type,
-                            parentId: data.folder.id,
-                            date: f.created_at ? new Date(f.created_at).toLocaleDateString('id-ID') : '-',
-                            action: 'File',
-                            size: f.size
-                        };
-                    });
-
-                    setItems([...mappedSubfolders, ...mappedFiles]);
-                    setCurrentFolderParentId(data.folder.parent_id || 'root');
-                } else {
-                    console.error("Failed to fetch folder:", res.statusText);
-                    setItems([]);
-                }
-            } catch (error) {
-                console.error("Error fetching folder:", error);
-            } finally {
-                setLoading(false);
+            setItems([...mappedSubfolders, ...mappedFiles]);
+            setCurrentFolderParentId(data.folder.parent_id || (data.folder.id === 'root' ? null : 'root'));
+            setCurrentFolderOwner(data.folder.owner_id);
+        } catch (error) {
+            console.error("Error fetching folder:", error);
+            // Handle 401/403 or other errors
+            if (error.message.includes('401')) {
+                // If 401 on root, it means we are not logged in.
+                // But listFolder for 'root' should return 401 if not logged in.
+                // We should handle this gracefully (e.g. show empty or redirect)
+                setItems([]);
             }
-        };
-
-        if (localStorage.getItem('token')) {
-            fetchData();
+        } finally {
+            setLoading(false);
         }
     }, [currentFolderId]);
+
+    useEffect(() => {
+        if (!authLoading) {
+            fetchData();
+        }
+    }, [currentFolderId, authLoading, fetchData]);
 
     const handleFolderClick = (folderId) => {
         setCurrentFolderId(folderId);
@@ -202,12 +182,68 @@ export default function DriveLayout() {
 
     const handleNavigateBack = () => {
         if (currentFolderId === 'root') return;
-        // logic: if currentFolderParentId is null/empty but we are not at root, go to root.
         setCurrentFolderId(currentFolderParentId || 'root');
     };
 
-    const onDrop = useCallback(async (acceptedFiles) => {
-        const newUploads = acceptedFiles.map(file => ({
+    const handleContextMenu = (event) => {
+        event.preventDefault();
+        // Only allow context menu if user has edit permission for this folder
+        if (!canEdit(currentFolderOwner) && currentFolderId !== 'root') {
+            // Logic adjustment: Public users can't right click to upload?
+            // Prompt: "tim media guru yang dapat membuat file... secara default file... private"
+            // Assume restrictive.
+            // If owner is different, check role.
+            // For now, let's allow menu but fail action if forbidden? Or hide menu.
+            // simpler: show menu, context sensitive.
+        }
+
+        setContextMenu(
+            contextMenu === null
+                ? {
+                    mouseX: event.clientX + 2,
+                    mouseY: event.clientY - 6,
+                }
+                : null,
+        );
+    };
+
+    const handleCloseContextMenu = () => {
+        setContextMenu(null);
+    };
+
+    const handleCreateFolderClick = () => {
+        handleCloseContextMenu();
+        setNewFolderName('');
+        setCreateFolderOpen(true);
+    };
+
+    const confirmCreateFolder = async () => {
+        try {
+            await api.createFolder(newFolderName, currentFolderId);
+            setCreateFolderOpen(false);
+            fetchData();
+        } catch (e) {
+            console.error("Create folder failed", e);
+            alert("Gagal membuat folder: " + e.message);
+        }
+    };
+
+    const handleUploadFileClick = () => {
+        handleCloseContextMenu();
+        fileInputRef.current.click();
+    };
+
+    const handleUploadFolderClick = () => {
+        handleCloseContextMenu();
+        if (folderInputRef.current) {
+            folderInputRef.current.setAttribute("webkitdirectory", "");
+            folderInputRef.current.setAttribute("directory", "");
+            folderInputRef.current.click();
+        }
+    };
+
+    const handleUploadFiles = async (files) => {
+        const newUploads = Array.from(files).map(file => ({
             name: file.name,
             progress: 0,
             id: Math.random().toString(36).substr(2, 9),
@@ -218,43 +254,17 @@ export default function DriveLayout() {
 
         for (const uploadItem of newUploads) {
             try {
-                const token = localStorage.getItem('token');
+                // 1. Init Upload
+                const initRes = await api.uploadFileInit(
+                    uploadItem.name,
+                    currentFolderId,
+                    uploadItem.file.size,
+                    uploadItem.file.type || 'application/octet-stream'
+                );
 
-                // 1. Get Presigned URL
-                const initRes = await fetch('http://localhost:8080/api/files/upload', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        name: uploadItem.name,
-                        folder_id: currentFolderId === 'root' ? 'root' : currentFolderId, // Handle root explicitly if needed, but backend handles UUIDs. 
-                        // Wait, if currentFolderId is 'root', backend expects 'root'? 
-                        // Actually backend expects UUID or logic to handle 'root'.
-                        // My backend `upload_file` assumes folder_id is UUID for storage_key.
-                        // I might need to fix backend to handle 'root' or create a real root folder.
-                        // For now, let's assume currentFolderId is valid.
-                        // If currentFolderId is 'root', DB insert might fail if no FK. 
-                        // But wait, the backend `list_folder` handles "root" virtually.
-                        // It seems I need a real folder ID for upload. Or handle "root" in `upload_file`.
-                        // Let's assume for now I can upload to root if I patch backend or if backend handles it.
-                        // Actually `upload_file` does: query("INSERT INTO ... folder_id ..."). 
-                        // If folder_id is "root", and folders table doesn't have "root", it might fail FK if any.
-                        // But `files` table usually has FK to `folders`.
-                        // I should probably create a root folder entry in DB or allow NULL.
-                        // Let's proceed and see.
-                        folder_id: currentFolderId,
-                        size: uploadItem.file.size,
-                        mime_type: uploadItem.file.type || 'application/octet-stream'
-                    })
-                });
+                const { presigned_url } = initRes;
 
-                if (!initRes.ok) throw new Error("Failed to init upload");
-
-                const { presigned_url, file_id } = await initRes.json();
-
-                // 2. Upload to S3
+                // 2. Upload to S3 (XHR for progress)
                 const xhr = new XMLHttpRequest();
                 xhr.open('PUT', presigned_url, true);
                 if (uploadItem.file.type) {
@@ -271,26 +281,8 @@ export default function DriveLayout() {
                 xhr.onload = () => {
                     if (xhr.status === 200) {
                         setUploads(prev => prev.map(u => u.id === uploadItem.id ? { ...u, progress: 100 } : u));
-                        // Refresh List
                         setTimeout(() => {
-                            // Trigger refresh (hacky way: toggle ID or just re-fetch)
-                            const token = localStorage.getItem('token');
-                            // Re-fetch logic or just append
-                            // For now, simple re-fetch
-                            // We can't easily call fetchData as it is inside useEffect.
-                            // Actually we can just manually add the file to items
-                            setItems(prev => [...prev, {
-                                id: file_id,
-                                name: uploadItem.name,
-                                type: 'file',
-                                mimeType: uploadItem.file.type,
-                                parentId: currentFolderId,
-                                date: new Date().toLocaleDateString('id-ID'),
-                                action: 'Uploaded',
-                                size: uploadItem.file.size
-                            }]);
-
-                            // Remove from uploads after delay
+                            fetchData(); // Refresh list
                             setTimeout(() => {
                                 setUploads(prev => prev.filter(u => u.id !== uploadItem.id));
                             }, 3000);
@@ -308,24 +300,25 @@ export default function DriveLayout() {
 
             } catch (e) {
                 console.error(e);
-                // Mark error
                 setUploads(prev => prev.map(u => u.id === uploadItem.id ? { ...u, progress: -1 } : u));
+                alert(`Upload failed for ${uploadItem.name}: ${e.message}`);
             }
         }
+    };
+
+    const onDrop = useCallback(async (acceptedFiles) => {
+        handleUploadFiles(acceptedFiles);
     }, [currentFolderId]);
 
     const handleFileClick = async (fileId) => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`http://localhost:8080/api/files/${fileId}/download`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const { url } = await res.json();
-                window.open(url, '_blank');
+            const res = await api.getDownloadUrl(fileId);
+            if (res && res.url) {
+                window.open(res.url, '_blank');
             }
         } catch (e) {
             console.error("Download failed", e);
+            alert("Gagal membuka file: " + e.message);
         }
     };
 
@@ -338,6 +331,23 @@ export default function DriveLayout() {
     return (
         <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#F8FAFD' }} {...getRootProps()}>
             <input {...getInputProps()} />
+            <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                onChange={(e) => handleUploadFiles(e.target.files)}
+                multiple
+            />
+            <input
+                type="file"
+                ref={folderInputRef}
+                style={{ display: 'none' }}
+                onChange={(e) => handleUploadFiles(e.target.files)}
+                multiple
+                webkitdirectory=""
+                directory=""
+            />
+
             <CssBaseline />
             <DriveHeader handleDrawerToggle={handleDrawerToggle} />
 
@@ -354,7 +364,7 @@ export default function DriveLayout() {
                     '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth, backgroundColor: '#F8FAFD', border: 'none' },
                 }}
             >
-                <DriveSidebar onNewClick={open} />
+                <DriveSidebar onNewClick={handleContextMenu} />
             </Drawer>
 
             {/* Desktop Sidebar */}
@@ -368,24 +378,28 @@ export default function DriveLayout() {
                 }}
             >
                 <Box sx={{ height: 64 }} />
-                <DriveSidebar onNewClick={open} />
+                <DriveSidebar onNewClick={(e) => {
+                    // Simulate context menu at button location or specific point
+                    setContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+                }} />
             </Box>
 
             {/* Main Content Area */}
             <Box
                 component="main"
+                onContextMenu={handleContextMenu}
                 sx={{
                     flexGrow: 1,
                     display: 'flex',
                     flexDirection: 'column',
                     width: { md: `calc(100% - ${drawerWidth}px)` },
                     height: '100%',
-                    pt: '64px', // Match header height
-                    pr: 0, // No padding right yet, container will have margin
+                    pt: '64px',
+                    pr: 0,
                     position: 'relative'
                 }}
             >
-                {/* White container with rounded corners */}
+                {/* White container */}
                 <Box sx={{
                     flexGrow: 1,
                     mt: 2,
@@ -393,7 +407,7 @@ export default function DriveLayout() {
                     mb: 2,
                     backgroundColor: 'white',
                     borderRadius: '16px',
-                    boxShadow: 'none', // Flat look often better for internal containers
+                    boxShadow: 'none',
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
@@ -428,16 +442,68 @@ export default function DriveLayout() {
                         }}>
                             <CloudUploadIcon sx={{ fontSize: 64, color: '#1a73e8', mb: 2 }} />
                             <Typography variant="h5" color="primary" sx={{ fontWeight: 500 }}>
-                                Lepaskan file untuk mengupload ke Drive Saya
+                                Lepaskan file untuk mengupload
                             </Typography>
                         </Box>
                     )}
                 </Box>
             </Box>
 
-            {/* Right Side Panel - REMOVED */}
-
             <UploadProgress uploads={uploads} onClose={() => setUploads([])} />
+
+            {/* Context Menu */}
+            <Menu
+                open={contextMenu !== null}
+                onClose={handleCloseContextMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={
+                    contextMenu !== null
+                        ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+                        : undefined
+                }
+            >
+                <MenuItem onClick={handleCreateFolderClick}>
+                    <ListItemIcon>
+                        <CreateNewFolderIcon fontSize="small" />
+                    </ListItemIcon>
+                    Folder baru
+                </MenuItem>
+                <Divider />
+                <MenuItem onClick={handleUploadFileClick}>
+                    <ListItemIcon>
+                        <UploadFileIcon fontSize="small" />
+                    </ListItemIcon>
+                    Upload file
+                </MenuItem>
+                <MenuItem onClick={handleUploadFolderClick}>
+                    <ListItemIcon>
+                        <DriveFolderUploadIcon fontSize="small" />
+                    </ListItemIcon>
+                    Upload folder
+                </MenuItem>
+            </Menu>
+
+            {/* Create Folder Dialog */}
+            <Dialog open={createFolderOpen} onClose={() => setCreateFolderOpen(false)}>
+                <DialogTitle>Folder Baru</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        id="name"
+                        label="Nama Folder"
+                        type="text"
+                        fullWidth
+                        variant="standard"
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setCreateFolderOpen(false)}>Batal</Button>
+                    <Button onClick={confirmCreateFolder}>Buat</Button>
+                </DialogActions>
+            </Dialog>
 
         </Box>
     );

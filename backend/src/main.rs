@@ -41,7 +41,7 @@ async fn main() {
     // 4. Define Routes
     let app = Router::new()
         // Auth Routes
-        .route("/api/auth/register", post(user::register))
+        // .route("/api/auth/register", post(user::register))
         .route("/api/auth/login", post(user::login))
         
         // Folder Routes

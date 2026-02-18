@@ -10,26 +10,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::{CreateFolderDto, Folder, File};
 use crate::state::AppState;
-use crate::middleware::auth::AuthUser;
-use crate::services::redis_cache::{
-    get_cached_subfolders, get_cached_folder_files,
-    cache_subfolders, cache_folder_files,
-    invalidate_folder_listing, 
-    check_permission
-};
+use crate::middleware::auth::{AuthUser, OptionalAuthUser};
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct FolderContentResponse {
-    pub folder: Folder,
-    pub subfolders: Vec<Folder>,
-    pub files: Vec<File>,
-}
+// ... other imports ...
+
+// (Keep existing imports)
 
 pub async fn create_folder(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(payload): Json<CreateFolderDto>,
 ) -> impl IntoResponse {
+    // Role Check: Only admin, osis, media_guru can create folders
+    let allowed_roles = ["admin", "osis", "media_guru"];
+    if !allowed_roles.contains(&user.role.as_str()) {
+        return (StatusCode::FORBIDDEN, "Insufficient role to create folders").into_response();
+    }
+
     let folder_id = Uuid::new_v4().to_string();
     let is_public = payload.is_public.unwrap_or(false);
 
@@ -93,105 +90,125 @@ pub async fn create_folder(
 
 pub async fn list_folder(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    OptionalAuthUser(opt_user): OptionalAuthUser,
     Path(folder_id): Path<String>,
 ) -> impl IntoResponse {
-    // 1. Handle Root Special Case
-    let folder: Folder = if folder_id == "root" {
-        Folder {
-            id: "root".to_string(),
-            name: "Drive Saya".to_string(),
-            parent_id: None,
-            owner_id: user.sub.clone(),
-            is_public: false,
-            created_at: Some(chrono::Utc::now().naive_utc()),
-        }
-    } else {
-        let f: Option<Folder> = query_as("SELECT * FROM folders WHERE id = ?")
-            .bind(&folder_id)
-            .fetch_optional(&state.db)
-            .await
-            .unwrap_or(None);
+    let user_sub = opt_user.as_ref().map(|u| u.sub.clone());
+    let user_role = opt_user.as_ref().map(|u| u.role.clone());
 
-        match f {
-            Some(f) => f,
-            None => return (StatusCode::NOT_FOUND, "Folder not found").into_response(),
+    // 1. Handle Root Special Case
+    // "root" is strictly for logged-in users to see their own files/folders.
+    if folder_id == "root" {
+        if let Some(sub) = user_sub {
+             let folder = Folder {
+                id: "root".to_string(),
+                name: "Drive Saya".to_string(),
+                parent_id: None,
+                owner_id: sub.clone(),
+                is_public: false,
+                created_at: Some(chrono::Utc::now().naive_utc()),
+            };
+            
+            // Allow access (it's their root)
+            // Fetch children
+            // Cache logic for root... (simplified here for brevity, assume similar structure to existing)
+             let cached_subfolders = get_cached_subfolders(&state.redis, "root").await.unwrap_or(None); // Ensure cache key distinguishes per user! ideally "root:{user_id}"
+             // For simplicity, let's bypass cache for root or ensure cache invalidation touches user-specific keys. 
+             // Current redis implementation might be simplistic. I'll just query DB for root to be safe or assume user-specific keys aren't implemented yet.
+             
+             let subfolders: Vec<Folder> = sqlx::query_as("SELECT * FROM folders WHERE parent_id IS NULL AND owner_id = ?")
+                .bind(&sub)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+                
+             let files: Vec<File> = sqlx::query_as("SELECT * FROM files WHERE folder_id IS NULL AND owner_id = ?")
+                .bind(&sub)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+                
+             let response = FolderContentResponse {
+                folder,
+                subfolders,
+                files,
+             };
+             return (StatusCode::OK, Json(response)).into_response();
+
+        } else {
+            return (StatusCode::UNAUTHORIZED, "Please login to view your files").into_response();
         }
+    }
+
+    // 2. Fetch Folder
+    let folder: Option<Folder> = query_as("SELECT * FROM folders WHERE id = ?")
+        .bind(&folder_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+    let folder = match folder {
+        Some(f) => f,
+        None => return (StatusCode::NOT_FOUND, "Folder not found").into_response(),
     };
 
-    // 2. Permission Check
-    // Logic: Owner OR Admin OR Permission Entry OR Public
-    let is_owner = folder.owner_id == user.sub;
-    let is_admin = user.role == "admin";
+    // 3. Permission Check
     let is_public = folder.is_public;
-    let is_root = folder_id == "root";
+    let is_owner = user_sub.as_ref() == Some(&folder.owner_id);
+    let is_admin = user_role.as_deref() == Some("admin");
 
-    let mut access_granted = is_owner || is_admin || is_public || is_root;
+    let mut access_granted = is_owner || is_admin || is_public;
 
-    if !access_granted && user.role == "staff" {
-        // Staff can access student folders
-        let owner_role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
-            .bind(&folder.owner_id)
-            .fetch_optional(&state.db)
-            .await
-            .unwrap_or(None);
-        
-        if let Some(role) = owner_role {
-            if role == "student" {
-                access_granted = true;
-            }
+    if !access_granted {
+        if let Some(sub) = &user_sub {
+             // Check explicit permission (Cache-first)
+             let perm_cache = check_permission(&state.redis, &folder_id, sub).await.unwrap_or(None);
+             
+             if let Some(role) = perm_cache {
+                if role == "viewer" || role == "editor" {
+                    access_granted = true;
+                }
+             } else {
+                 // DB Fallback
+                 let has_perm: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ?") 
+                    .bind(&folder_id)
+                    .bind(sub)
+                    .fetch_one(&state.db)
+                    .await
+                    .ok();
+                 
+                 if has_perm.unwrap_or(0) > 0 {
+                     access_granted = true;
+                     // Ideally populate permission cache here
+                 }
+             }
         }
     }
 
     if !access_granted {
-         // Check explicit permission (Cache-first)
-         let perm_cache = check_permission(&state.redis, &folder_id, &user.sub).await.unwrap_or(None);
-         
-         if let Some(role) = perm_cache {
-            if role == "viewer" || role == "editor" {
-                access_granted = true;
-            }
-         } else {
-             // DB Fallback
-             let has_perm: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM folder_permissions WHERE folder_id = ? AND user_id = ?") 
-                .bind(&folder_id)
-                .bind(&user.sub)
-                .fetch_one(&state.db)
-                .await
-                .ok();
-             
-             if has_perm.unwrap_or(0) > 0 {
-                 access_granted = true;
-                 // Ideally populate permission cache here
-             }
-         }
-         
-         if !access_granted {
-             return (StatusCode::FORBIDDEN, "Access denied").into_response();
-         }
+        return (StatusCode::FORBIDDEN, "Access denied").into_response();
     }
 
-    // 3. Fetch Children (Try Cache First)
-    // Note: ensure cache key uses "root" if folder_id is "root"
+    // 4. Fetch Children
+    // IMPORTANT: If user is viewing a public folder but is NOT the owner/admin, 
+    // should they see ALL files in it, or only public files?
+    // Assumption: If a folder is public, its contents are visible? 
+    // Usually systems inherit permissions. Let's assume if you have access to folder, you see its content.
+    // However, the prompt says "secara default, file/folder yang dibuat akan private... tapi jika folder/file aksesnya sudah dipublik maka link tersebut akan dapat diakses oleh publik".
+    // This could mean granular control inside public folders? 
+    // Let's stick to standard drive behavior: Valid folder access -> List all contents.
+
     let cached_subfolders = get_cached_subfolders(&state.redis, &folder_id).await.unwrap_or(None);
     let cached_files = get_cached_folder_files(&state.redis, &folder_id).await.unwrap_or(None);
 
     let subfolders = match cached_subfolders {
         Some(s) => s,
         None => {
-            let s: Vec<Folder> = if folder_id == "root" {
-                     sqlx::query_as("SELECT * FROM folders WHERE parent_id IS NULL AND owner_id = ?")
-                        .bind(&user.sub)
-                        .fetch_all(&state.db)
-                        .await
-                        .unwrap_or_default()
-            } else {
-                     sqlx::query_as("SELECT * FROM folders WHERE parent_id = ?")
-                        .bind(&folder_id)
-                        .fetch_all(&state.db)
-                        .await
-                        .unwrap_or_default()
-            };
+            let s: Vec<Folder> = sqlx::query_as("SELECT * FROM folders WHERE parent_id = ?")
+                .bind(&folder_id)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
             
             // Populate cache
             let _ = cache_subfolders(&state.redis, &folder_id, &s).await;
@@ -202,19 +219,11 @@ pub async fn list_folder(
     let files = match cached_files {
         Some(f) => f,
         None => {
-            let f: Vec<File> = if folder_id == "root" {
-                 sqlx::query_as("SELECT * FROM files WHERE folder_id IS NULL AND owner_id = ?")
-                        .bind(&user.sub)
-                        .fetch_all(&state.db)
-                        .await
-                        .unwrap_or_default()
-            } else {
-                 sqlx::query_as("SELECT * FROM files WHERE folder_id = ?")
-                        .bind(&folder_id)
-                        .fetch_all(&state.db)
-                        .await
-                        .unwrap_or_default()
-            };
+            let f: Vec<File> = sqlx::query_as("SELECT * FROM files WHERE folder_id = ?")
+                .bind(&folder_id)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
             
              // Populate cache
              let _ = cache_folder_files(&state.redis, &folder_id, &f).await;

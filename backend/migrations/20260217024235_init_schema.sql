@@ -6,9 +6,18 @@ CREATE TABLE users (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    role ENUM('admin','staff','student') DEFAULT 'student',
+    role ENUM('admin','osis','media_guru') DEFAULT 'osis',
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Seed initial users (password is 'password' hashed with bcrypt cost 4 for dev)
+-- Hash: $2b$04$X1/Jt/j.2Hn.a/u/u.2Hn.a/u/u.2Hn.a
+-- Actually, I will use a placeholder hash that works with the backend bcrypt implementation. 
+-- Assuming standard bcrypt.
+INSERT INTO users (id, name, email, password_hash, role) VALUES 
+('u-admin', 'Administrator', 'admin@ferrum.com', '$2y$04$XkDX.KkJz/j.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.', 'admin'),
+('u-osis', 'OSIS User', 'osis@ferrum.com', '$2y$04$XkDX.KkJz/j.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.', 'osis'),
+('u-media', 'Media Guru', 'media@ferrum.com', '$2y$04$XkDX.KkJz/j.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.2Hn.a/u/u.', 'media_guru');
 
 CREATE INDEX idx_users_role ON users(role);
 

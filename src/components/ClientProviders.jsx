@@ -107,11 +107,15 @@ const theme = createTheme({
     },
 });
 
+import { AuthProvider } from '../context/AuthContext';
+
 export default function ClientProviders({ children }) {
     return (
-        <ThemeProvider theme={theme}>
-            <CssBaseline />
-            {children}
-        </ThemeProvider>
+        <AuthProvider>
+            <ThemeProvider theme={theme}>
+                <CssBaseline />
+                {children}
+            </ThemeProvider>
+        </AuthProvider>
     );
 }

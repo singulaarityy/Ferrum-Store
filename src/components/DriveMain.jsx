@@ -106,11 +106,16 @@ const FilePreviewCard = ({ file, onClick }) => (
         </Box>
 
         {/* Footer */}
-        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center' }}>
-            <Avatar src="/static/images/avatar/1.jpg" sx={{ width: 24, height: 24, mr: 1 }} />
-            <Typography variant="caption" color="text.secondary" noWrap>
-                {file.action} • {file.date}
-            </Typography>
+        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Avatar src="/static/images/avatar/1.jpg" sx={{ width: 24, height: 24, mr: 1 }} />
+                <Typography variant="caption" color="text.secondary" noWrap>
+                    {file.action} • {file.date}
+                </Typography>
+            </Box>
+            {file.isPublic && (
+                <Chip label="Publik" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '10px' }} />
+            )}
         </Box>
     </Card>
 );
