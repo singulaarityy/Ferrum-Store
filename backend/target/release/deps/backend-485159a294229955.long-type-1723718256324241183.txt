@@ -1,2 +1,0 @@
-fn(axum::extract::State<AppState>, {type error}, axum::Json<FileUploadRequest>) -> impl std::future::Future<Output = impl IntoResponse> {upload_file}
-fn(axum::extract::State<AppState>, {type error}, axum::Json<FileUploadRequest>) -> impl std::future::Future<Output = impl IntoResponse> {upload_file}: Handler<_, _>

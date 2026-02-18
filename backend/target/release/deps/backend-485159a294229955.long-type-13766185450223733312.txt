@@ -1,2 +1,0 @@
-fn(axum::extract::State<AppState>, {type error}, axum::Json<CreateFolderDto>) -> impl std::future::Future<Output = impl IntoResponse> {create_folder}
-fn(axum::extract::State<AppState>, {type error}, axum::Json<CreateFolderDto>) -> impl std::future::Future<Output = impl IntoResponse> {create_folder}: Handler<_, _>

@@ -1,2 +1,0 @@
-fn(axum::extract::State<AppState>, {type error}, axum::extract::Path<std::string::String>) -> impl std::future::Future<Output = impl IntoResponse> {download_file}
-fn(axum::extract::State<AppState>, {type error}, axum::extract::Path<std::string::String>) -> impl std::future::Future<Output = impl IntoResponse> {download_file}: Handler<_, _>
